@@ -1,0 +1,373 @@
+import json
+import os
+import random
+import uuid
+from dataclasses import dataclass, asdict
+from datetime import date, datetime, timedelta
+from typing import Dict, List
+
+import streamlit as st
+
+DATA_PATH = "data.json"
+
+# ----------------------------
+# Utilities
+# ----------------------------
+def safe_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+    else:
+        return
+
+def new_id() -> str:
+    return uuid.uuid4().hex
+
+def load_data() -> Dict:
+    if not os.path.exists(DATA_PATH):
+        return {"tasks": []}
+    try:
+        with open(DATA_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {"tasks": []}
+    data.setdefault("tasks", [])
+    return data
+
+def save_data(data: Dict) -> None:
+    with open(DATA_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+# ----------------------------
+# Pairing by account numbers
+# ----------------------------
+def pair_id_from_account(account_id: int) -> int:
+    return account_id // 2
+
+def gen_account_pair() -> tuple[int, int]:
+    base = random.randrange(100000, 999998, 2)
+    return base, base + 1
+
+def normalize_pair_accounts(account_id: int) -> tuple[int, int]:
+    if account_id % 2 == 0:
+        return account_id, account_id + 1
+    return account_id - 1, account_id
+
+# ----------------------------
+# Data model
+# ----------------------------
+@dataclass
+class Task:
+    id: str
+    pair_id: int
+    from_account: int
+    to_account: int
+    title: str
+    created_at: str
+    completions: Dict[str, bool]
+
+def task_from_raw(raw: Dict) -> Task:
+    raw = dict(raw)
+    raw.setdefault("completions", {})
+    return Task(**raw)
+
+def is_done(task: Task, day: date) -> bool:
+    return bool(task.completions.get(day.isoformat(), False))
+
+def set_done(task: Task, day: date, done: bool) -> None:
+    task.completions[day.isoformat()] = bool(done)
+
+def streak(task: Task, up_to: date) -> int:
+    d = up_to
+    s = 0
+    while True:
+        if is_done(task, d):
+            s += 1
+            d -= timedelta(days=1)
+        else:
+            break
+    return s
+
+# ----------------------------
+# Page + Nordic minimal styling
+# ----------------------------
+st.set_page_config(page_title="CareLink MVP", page_icon="🤝", layout="wide")
+
+st.markdown(
+    """
+<style>
+/* Nordic minimal: airy spacing, soft surfaces, subtle motion */
+:root{
+  --bg: rgba(248,249,251,1);
+  --surface: rgba(255,255,255,.78);
+  --surface2: rgba(255,255,255,.55);
+  --border: rgba(15, 23, 42, .10);
+  --text: rgba(15, 23, 42, .92);
+  --muted: rgba(15, 23, 42, .60);
+  --shadow: 0 10px 30px rgba(15, 23, 42, .06);
+  --radius: 22px;
+}
+html, body, .stApp { background: var(--bg); color: var(--text); }
+.block-container { padding-top: 1.25rem; max-width: 1220px; }
+h1,h2,h3 { letter-spacing: -0.02em; }
+
+/* Hide Streamlit default menu/footer for cleaner look */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+
+/* Sidebar polish */
+section[data-testid="stSidebar"]{
+  background: rgba(255,255,255,.6);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+
+/* Card */
+.nl-card{
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 16px 10px 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: nl-fadeUp .25s ease-out;
+}
+@keyframes nl-fadeUp { from {opacity:0; transform: translateY(8px);} to {opacity:1; transform: translateY(0);} }
+
+/* Header row */
+.nl-head{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; margin-bottom: 2px;
+}
+.nl-pill{
+  display:inline-flex; align-items:center; gap:8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface2);
+}
+
+/* Task row */
+.nl-row{
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.55);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.nl-row:hover{ transform: translateY(-1px); box-shadow: 0 8px 22px rgba(15,23,42,.07); }
+
+/* Buttons look */
+.stButton > button{
+  border-radius: 16px !important;
+  padding: .62rem .9rem !important;
+  border: 1px solid var(--border) !important;
+  background: rgba(255,255,255,.7) !important;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.stButton > button:hover{ transform: translateY(-1px); box-shadow: 0 10px 24px rgba(15,23,42,.08); }
+
+/* Inputs */
+div[data-testid="stTextInput"] input{
+  border-radius: 16px !important;
+}
+div[data-testid="stTextInput"] input, textarea{
+  border: 1px solid var(--border) !important;
+  background: rgba(255,255,255,.7) !important;
+}
+
+/* Checkbox label smaller */
+label[data-testid="stCheckbox"]{ font-size: 0.95rem; }
+
+/* Divider soften */
+hr { border-color: rgba(15,23,42,.10) !important; }
+
+/* Tiny caption */
+.nl-muted{ color: var(--muted); font-size: 12px; margin-top: 6px; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+data = load_data()
+
+# ----------------------------
+# Sidebar login (keep your flow)
+# ----------------------------
+with st.sidebar:
+    st.title("CareLink")
+    st.caption("Nordic minimal demo")
+
+    mode = st.radio("你有没有账号？", ["我有账号", "我没有账号"], horizontal=True)
+
+    if mode == "我有账号":
+        acc = st.text_input("输入你的账号编号", placeholder="例如：100123")
+        if st.button("进入", use_container_width=True):
+            if not acc.isdigit():
+                st.error("请输入纯数字账号。")
+            else:
+                account_id = int(acc)
+                st.session_state["account_id"] = account_id
+                st.session_state["pair_id"] = pair_id_from_account(account_id)
+                st.toast("已进入", icon="✅")
+                safe_rerun()
+    else:
+        if st.button("生成一对账号", use_container_width=True):
+            a, b = gen_account_pair()
+            st.session_state["generated_a"] = a
+            st.session_state["generated_b"] = b
+
+        if "generated_a" in st.session_state:
+            a = st.session_state["generated_a"]
+            b = st.session_state["generated_b"]
+            st.info("把“对方账号”发给对方；你们就能连到同一个空间。")
+            st.code(f"你的账号：{a}\n对方账号：{b}", language="text")
+            if st.button("我用我的账号进入", use_container_width=True):
+                st.session_state["account_id"] = a
+                st.session_state["pair_id"] = pair_id_from_account(a)
+                st.toast("已进入", icon="✅")
+                safe_rerun()
+
+    st.divider()
+    if st.session_state.get("pair_id") is not None:
+        if st.button("退出（本设备）", use_container_width=True):
+            for k in ["account_id", "pair_id", "generated_a", "generated_b"]:
+                st.session_state.pop(k, None)
+            safe_rerun()
+
+pair_id = st.session_state.get("pair_id")
+account_id = st.session_state.get("account_id")
+
+if pair_id is None or account_id is None:
+    st.markdown("## 🤝 关系任务 MVP（双人对称界面）")
+    st.caption("保持现在的登录方式；进入后左右分别代表两个人。")
+    st.info("请先在左侧输入账号或生成一对账号进入。")
+    st.stop()
+
+left_account, right_account = normalize_pair_accounts(int(account_id))
+
+# ----------------------------
+# Load tasks for this pair
+# ----------------------------
+all_tasks: List[Task] = []
+for raw in data.get("tasks", []):
+    try:
+        all_tasks.append(task_from_raw(raw))
+    except TypeError:
+        continue
+
+pair_tasks = [t for t in all_tasks if int(t.pair_id) == int(pair_id)]
+pair_tasks.sort(key=lambda t: t.created_at, reverse=True)
+
+def tasks_sent_by(from_acc: int) -> List[Task]:
+    return [t for t in pair_tasks if int(t.from_account) == int(from_acc)]
+
+def tasks_received_by(to_acc: int) -> List[Task]:
+    return [t for t in pair_tasks if int(t.to_account) == int(to_acc)]
+
+def persist_task(updated: Task) -> None:
+    for i, raw in enumerate(data.get("tasks", [])):
+        if raw.get("id") == updated.id:
+            data["tasks"][i] = asdict(updated)
+            save_data(data)
+            return
+    data.setdefault("tasks", []).append(asdict(updated))
+    save_data(data)
+
+def create_task(from_acc: int, to_acc: int, title: str) -> None:
+    t = Task(
+        id=new_id(),
+        pair_id=int(pair_id),
+        from_account=int(from_acc),
+        to_account=int(to_acc),
+        title=title.strip(),
+        created_at=datetime.utcnow().isoformat(timespec="seconds"),
+        completions={},
+    )
+    data.setdefault("tasks", []).insert(0, asdict(t))
+    save_data(data)
+
+# ----------------------------
+# Main layout
+# ----------------------------
+st.markdown("# 🤝 关系任务")
+st.caption("左右对称：输入 task 会发送到对方列表；对方用 ✅ 勾选今天完成。")
+
+colL, colR = st.columns(2, gap="large")
+
+def render_user_panel(col, me: int, other: int):
+    today_iso = date.today().isoformat()
+    with col:
+        st.markdown('<div class="nl-card">', unsafe_allow_html=True)
+
+        st.markdown(
+            f"""
+<div class="nl-head">
+  <div>
+    <div style="font-weight:700; font-size:18px;">用户 {me}</div>
+    <div class="nl-muted">今天：{today_iso}</div>
+  </div>
+  <div class="nl-pill">对方 {other}</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+
+        st.markdown("#### 发送一个 task")
+        task_title = st.text_input(
+            "Task 内容",
+            key=f"new_task_{me}",
+            placeholder="例如：晚饭后走 10 分钟",
+            label_visibility="collapsed",
+        )
+        if st.button("发送给对方", key=f"send_{me}", use_container_width=True):
+            if not task_title.strip():
+                st.warning("先写一个 task 再发送。")
+            else:
+                create_task(from_acc=me, to_acc=other, title=task_title)
+                st.toast("已发送", icon="📩")
+                safe_rerun()
+
+        st.divider()
+
+        # Received tasks (me checks)
+        st.markdown("#### 我收到的 tasks（我来✅）")
+        received = tasks_received_by(me)
+        if not received:
+            st.info("还没有收到 task。")
+        else:
+            for t in received[:20]:
+                st.markdown('<div class="nl-row">', unsafe_allow_html=True)
+                row = st.columns([6, 1.4], vertical_alignment="center")
+                row[0].write(t.title)
+
+                key = f"done_{t.id}_{me}_{today_iso}"
+                checked = row[1].checkbox("✅", value=is_done(t, date.today()), key=key)
+                if checked != is_done(t, date.today()):
+                    set_done(t, date.today(), checked)
+                    persist_task(t)
+                    st.toast("已更新", icon="✅")
+
+                st.caption(f"连续完成：{streak(t, date.today())} 天")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        st.divider()
+
+        # Sent tasks (read-only)
+        st.markdown("#### 我发出的 tasks（对方✅）")
+        sent = tasks_sent_by(me)
+        if not sent:
+            st.info("你还没发出 task。")
+        else:
+            for t in sent[:20]:
+                status = "✅" if t.completions.get(today_iso, False) else "—"
+                st.markdown(f"- **{status}**  {t.title}")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+render_user_panel(colL, left_account, right_account)
+render_user_panel(colR, right_account, left_account)
