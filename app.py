@@ -1,170 +1,189 @@
 import streamlit as st
+import random
 import time
 
-# --- 1. 基础配置与样式 (北欧简约风) ---
-st.set_page_config(page_title="CareLink", layout="centered")
+# --- 1. 页面配置与北欧风 CSS ---
+st.set_page_config(page_title="CareLink - Nordic", layout="centered")
 
 st.markdown("""
     <style>
-    /* 全局背景与字体 */
-    .stApp { background-color: #FBFBFB; }
-    h1, h2, h3 { color: #4A4A4A; font-family: 'Inter', sans-serif; font-weight: 300; }
+    .stApp { background-color: #FFFFFF; }
     
-    /* 圆形头像样式 */
-    .avatar {
-        width: 100px; height: 100px; border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        color: white; font-weight: bold; margin: 0 auto;
-        transition: transform 0.3s; cursor: pointer;
+    /* 模拟图片中的心跳连接线 */
+    .connection-container {
+        display: flex; align-items: center; justify-content: center; margin-top: 20px;
     }
-    .avatar-u1 { background-color: #93E1ED; } /* 浅青色 */
-    .avatar-u2 { background-color: #E979C1; } /* 浅粉色 */
-    .avatar:hover { transform: scale(1.05); }
+    .heart-beat {
+        width: 150px; height: 60px;
+        background: url('https://cdn0.iconfinder.com/data/icons/medical-2-10/512/ecg_pulse-512.png') no-repeat center;
+        background-size: contain; margin: 0 20px;
+    }
+    .heart-center {
+        position: absolute; border: 2px solid #E979C1; border-radius: 50%;
+        width: 60px; height: 60px; background: white;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        font-size: 0.7rem; color: #4A4A4A;
+    }
 
-    /* 任务卡片样式 */
-    .task-card {
-        background: white; border-radius: 15px; padding: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-        border: 1px solid #F0F0F0; margin-bottom: 20px;
+    /* 头像样式 */
+    .avatar-large {
+        width: 140px; height: 140px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.2rem; font-weight: 300; color: #333;
     }
+    .u1-bg { background-color: #93E1ED; }
+    .u2-bg { background-color: #E979C1; }
+
+    /* 进度条样式 */
+    .streak-bar {
+        display: flex; align-items: center; justify-content: center; gap: 10px; margin: 30px 0;
+    }
+    .dot { height: 12px; width: 12px; background-color: #4B8E2E; border-radius: 50%; display: inline-block; }
+    .line { height: 3px; width: 60px; background-color: #4B8E2E; }
     
-    /* 状态标签 */
-    .status-tag {
-        background: #DDF8A3; border-radius: 20px; padding: 5px 15px;
-        font-size: 0.8rem; color: #555; display: inline-block;
-    }
-    .want-tag {
-        background: #F4CE79; border-radius: 20px; padding: 5px 15px;
-        font-size: 0.8rem; color: #555; display: inline-block;
+    /* 输入框样式微调 */
+    .stTextInput>div>div>input { background-color: #F4CE79 !important; border-radius: 20px !important; border:none !important; }
+    .mood-box { background-color: #DDF8A3 !important; border-radius: 20px !important; padding: 5px 15px; }
+
+    /* 卡片容器 */
+    .task-container {
+        border: 1px solid #EEEEEE; border-radius: 15px; padding: 30px; margin: 20px 0; min-height: 150px;
+        text-align: center; color: #AAAAAA; font-size: 0.9rem;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 数据初始化 (模拟数据库) ---
-if 'db' not in st.session_state:
-    st.session_state.db = {
-        'tasks': [], # 格式: {"from": 1, "to": 2, "content": "喝水", "done": False}
-        'mood': {1: "Energetic", 2: "Tired"},
-        'want': {1: "Milk tea", 2: "Coffee"},
-        'streak': 2,
-        'reward_goal': 5,
-        'reward_item': "Special Gift"
-    }
+# --- 2. 模拟全局数据库 (在同一个 Session 内通过 Room ID 区分) ---
+if 'global_rooms' not in st.session_state:
+    st.session_state.global_rooms = {}
 
-# --- 3. 登录与配对逻辑 ---
+def get_room_data(room_key):
+    if room_key not in st.session_state.global_rooms:
+        st.session_state.global_rooms[room_key] = {
+            'tasks_to_u1': [], 'tasks_to_u2': [],
+            'mood': {1: "energetic", 2: "tired"},
+            'want': {1: "milktea", 2: "coffee"},
+            'streak': 2, 'reward_days': 5, 'reward_gift': "a special dinner"
+        }
+    return st.session_state.global_rooms[room_key]
+
+# --- 3. 登录界面 ---
 if 'user_id' not in st.session_state:
     st.title("CareLink")
-    col1, col2 = st.columns(2)
-    with col1:
-        user_input = st.number_input("输入你的号码", min_value=1, step=1)
-    if st.button("进入空间"):
-        st.session_state.user_id = user_input
-        st.rerun()
+    tab1, tab2 = st.tabs(["我有账号", "生成新 Room"])
+    
+    with tab1:
+        u_id = st.number_input("输入你的 ID (1, 2, 3...)", step=1, min_value=1)
+        if st.button("进入房间"):
+            st.session_state.user_id = u_id
+            st.rerun()
+            
+    with tab2:
+        if st.button("✨ 生成新的一对号码"):
+            new_u1 = random.randint(1000, 9000)
+            new_u2 = new_u1 + 1
+            st.success(f"已为您生成！你的号码是 **{new_u1}**，对方的号码是 **{new_u2}**。请记好！")
     st.stop()
 
-# 计算配对ID
+# --- 4. 逻辑处理：计算配对与获取数据 ---
 my_id = st.session_state.user_id
-partner_id = my_id + 1 if my_id % 2 != 0 else my_id - 1
+is_u1 = True if my_id % 2 != 0 else False
+partner_id = my_id + 1 if is_u1 else my_id - 1
+room_key = f"room_{min(my_id, partner_id)}_{max(my_id, partner_id)}"
+data = get_room_data(room_key)
 
-# 当前查看的视角 (默认是自己)
+# 视角控制
 if 'view_id' not in st.session_state:
     st.session_state.view_id = my_id
 
-# --- 4. 页面头部：头像切换与连接感 ---
-st.write(f"### Welcome to Room {min(my_id, partner_id)}-{max(my_id, partner_id)}")
+# --- 5. UI 设计还原 ---
 
-col_u1, col_mid, col_u2 = st.columns([2, 3, 2])
+# 头部：头像与心跳
+st.markdown(f"""
+    <div class="connection-container">
+        <div class="avatar-large u1-bg">User {min(my_id, partner_id)}</div>
+        <div class="heart-beat"></div>
+        <div class="heart-center">
+            <div style="color:#E979C1; font-size:1.2rem;">❤</div>
+            <div>{data['streak']} days</div>
+        </div>
+        <div class="avatar-large u2-bg">User {max(my_id, partner_id)}</div>
+    </div>
+    <p style='text-align:center; font-size:0.8rem; color:#888;'>how many days both doing task</p>
+""", unsafe_allow_html=True)
 
-with col_u1:
-    u1_class = "avatar-u1" if st.session_state.view_id == 1 else "avatar-u1" # 这里可以根据ID改颜色
-    st.markdown(f'<div class="avatar avatar-u1">User {min(my_id, partner_id)}</div>', unsafe_allow_html=True)
-    if st.button(f"切换到 User {min(my_id, partner_id)} 视角", key="btn_u1"):
+# 切换按钮 (放在头像下方)
+c1, c2, c3 = st.columns([1,2,1])
+with c1:
+    if st.button(f"Switch to U{min(my_id, partner_id)}", use_container_width=True):
         st.session_state.view_id = min(my_id, partner_id)
-        st.rerun()
-
-with col_mid:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align:center;'>❤️ {st.session_state.db['streak']} days</p>", unsafe_allow_html=True)
-    st.progress(st.session_state.db['streak'] / st.session_state.db['reward_goal'])
-    st.markdown("<p style='text-align:center; font-size: 0.8rem;'>how many days both doing task</p>", unsafe_allow_html=True)
-
-with col_u2:
-    st.markdown(f'<div class="avatar avatar-u2">User {max(my_id, partner_id)}</div>', unsafe_allow_html=True)
-    if st.button(f"切换到 User {max(my_id, partner_id)} 视角", key="btn_u2"):
+with c3:
+    if st.button(f"Switch to U{max(my_id, partner_id)}", use_container_width=True):
         st.session_state.view_id = max(my_id, partner_id)
-        st.rerun()
 
-st.divider()
+# 中间进度条
+st.markdown(f"""
+    <div class="streak-bar">
+        <div class="dot"></div><div class="line"></div>
+        <div class="dot"></div><div class="line" style="background-color:#EEEEEE;"></div>
+        <div class="dot" style="background-color:#EEEEEE;"></div><div class="line" style="background-color:#EEEEEE;"></div>
+        <div class="dot" style="background-color:#EEEEEE;"></div>
+        <span style="font-size:30px; margin-left:10px;">🎁</span>
+    </div>
+""", unsafe_allow_html=True)
 
-# --- 5. 个人状态区 (Mood & Want) ---
+# Mood & Want to have 区块
 curr_view = st.session_state.view_id
-st.write(f"#### User {curr_view}'s Status")
+col_left, col_right = st.columns(2)
 
-col_m, col_w = st.columns(2)
-with col_m:
-    st.write("**Mood**")
-    if curr_view == my_id: # 只有自己的视角可以改
-        new_mood = st.selectbox("How are you?", ["Energetic", "Tired", "Sad", "Happy"], 
-                               index=["Energetic", "Tired", "Sad", "Happy"].index(st.session_state.db['mood'].get(curr_view, "Happy")))
-        st.session_state.db['mood'][curr_view] = new_mood
-    st.markdown(f'<div class="status-tag">{st.session_state.db["mood"].get(curr_view)}</div>', unsafe_allow_html=True)
-
-with col_w:
-    st.write("**Want to have**")
+with col_left:
+    st.write("**mood**")
     if curr_view == my_id:
-        new_want = st.text_input("What do you want?", value=st.session_state.db['want'].get(curr_view))
-        st.session_state.db['want'][curr_view] = new_want
-    st.markdown(f'<div class="want-tag">{st.session_state.db["want"].get(curr_view)}</div>', unsafe_allow_html=True)
+        data['mood'][1 if is_u1 else 2] = st.text_input("How are you?", value=data['mood'][1 if is_u1 else 2], key="mood_in", label_visibility="collapsed")
+    else:
+        st.markdown(f"<div class='mood-box'>{data['mood'][2 if is_u1 else 1]}</div>", unsafe_allow_html=True)
 
-# --- 6. 任务系统 (核心逻辑) ---
-st.divider()
+with col_right:
+    st.write("**want to have**")
+    if curr_view == my_id:
+        data['want'][1 if is_u1 else 2] = st.text_input("Anything you want?", value=data['want'][1 if is_u1 else 2], key="want_in", label_visibility="collapsed")
+    else:
+        st.markdown(f"<div style='background-color:#F4CE79; border-radius:20px; padding:5px 15px;'>{data['want'][2 if is_u1 else 1]}</div>", unsafe_allow_html=True)
 
-# A. Today's Task (我收到的任务)
-st.write("### 📋 Today's Tasks")
-my_received_tasks = [t for t in st.session_state.db['tasks'] if t['to'] == curr_view]
+# 任务区块
+st.write("### Today's task:")
+my_received_list = data['tasks_to_u1'] if is_u1 else data['tasks_to_u2']
 
 with st.container():
-    st.markdown('<div class="task-card">', unsafe_allow_html=True)
-    if not my_received_tasks:
-        st.info(f"No tasks received for User {curr_view} today.")
+    if not my_received_list:
+        st.markdown('<div class="task-container">No tasks received from your linked user today.</div>', unsafe_allow_html=True)
     else:
-        for i, task in enumerate(my_received_tasks):
-            # 只有在自己的视角下才能勾选完成
+        for idx, task in enumerate(my_received_list):
+            # 只有在自己视角才能勾选
             if curr_view == my_id:
-                done = st.checkbox(task['content'], value=task['done'], key=f"recv_{i}")
-                task['done'] = done
+                task['done'] = st.checkbox(task['content'], value=task['done'], key=f"t_{idx}")
             else:
-                st.write(f"{'✅' if task['done'] else '⏳'} {task['content']}")
-    st.markdown('</div>', unsafe_allow_html=True)
+                st.write(f"{'✅' if task['done'] else '⭕'} {task['content']}")
 
-# B. Tasks for linked user (我发出的任务)
-st.write(f"### ✉️ Tasks for User {partner_id if curr_view == my_id else my_id}")
+st.write("### Tasks for linked user")
 if curr_view == my_id:
-    with st.expander("➕ Add a task for your partner"):
-        new_t = st.text_input("Task description")
-        if st.button("Send Task"):
-            st.session_state.db['tasks'].append({"from": my_id, "to": partner_id, "content": new_t, "done": False})
-            st.success("Task sent!")
-            time.sleep(1)
-            st.rerun()
+    new_task = st.text_input("Send a task to your partner...", key="send_task")
+    if st.button("Send"):
+        target_list = data['tasks_to_u2'] if is_u1 else data['tasks_to_u1']
+        target_list.append({"content": new_task, "done": False})
+        st.rerun()
 else:
-    st.info("You are viewing your partner's sent tasks.")
+    st.markdown('<div class="task-container">You have already sent tasks to your linked user today. Check back tomorrow!</div>', unsafe_allow_html=True)
 
-# --- 7. 奖励机制 (Reward) ---
-st.divider()
-st.write("### 🎁 Reward Progress")
-col_r1, col_r2 = st.columns([3, 1])
+# 奖励设定
+st.write("### Choose a reward for linked user")
+r_col1, r_col2, r_col3, r_col4 = st.columns([2,1,2,2])
+with r_col1: st.write("If he/she complete task for")
+with r_col2: r_days = st.text_input("days", value=str(data['reward_days']), label_visibility="collapsed")
+with r_col3: st.write("days, gain a gift of")
+with r_col4: r_gift = st.text_input("gift", value=data['reward_gift'], label_visibility="collapsed")
 
-with col_r1:
-    days = st.session_state.db['reward_goal']
-    gift = st.session_state.db['reward_item']
-    st.write(f"If tasks are completed for **{days}** days, gain a gift of **{gift}**")
-
-if st.session_state.db['streak'] >= st.session_state.db['reward_goal']:
-    st.balloons()
-    st.success("🎉 Reward Milestone Reached!")
-
-# 底部退出
-if st.sidebar.button("Log out"):
-    del st.session_state.user_id
-    st.rerun()
+if st.button("Save Reward"):
+    data['reward_days'] = int(r_days)
+    data['reward_gift'] = r_gift
+    st.success("Reward updated!")
